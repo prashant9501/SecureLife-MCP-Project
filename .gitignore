@@ -23,7 +23,7 @@ build/
 dist/
 
 # Chainlit runtime artifacts (auto-generated on first run)
-**/.chainlit/translations/
+**/.chainlit/
 **/.files/
 .files/
 
