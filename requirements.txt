@@ -1,0 +1,7 @@
+chainlit
+fastmcp
+langchain
+langchain-openai
+langgraph
+python-dotenv
+nest-asyncio
