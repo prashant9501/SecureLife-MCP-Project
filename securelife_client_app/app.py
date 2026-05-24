@@ -48,17 +48,22 @@ async def main(message: cl.Message):
     # We will accumulate the final state as the nodes execute
     final_state = {}
 
+    stream = compiled_graph.astream(initial_state, stream_mode="updates")
     try:
-        # astream() yields the output of each node exactly as it completes
-        async for output in compiled_graph.astream(initial_state):
+        # astream() yields {node_name: state_update} as each node completes.
+        async for output in stream:
             for node_name, state_update in output.items():
-                
+                # LangGraph can yield empty/None updates for skipped nodes;
+                # skip them so dict.update doesn't blow up and we don't render empty UI steps.
+                if not state_update:
+                    continue
+
                 # Keep our local state updated for the final summary
                 final_state.update(state_update)
-                
+
                 # Create a distinct, collapsible UI step for each node
                 async with cl.Step(name=f"⚙️ Node: {node_name}") as step:
-                    
+
                     # Custom UI formatting based on which node just finished
                     if node_name == "triage":
                         if "error" in state_update.get("claim_record", {}):
@@ -67,7 +72,7 @@ async def main(message: cl.Message):
                         else:
                             # Show a snippet of the fetched data
                             step.output = f"✅ Claim record fetched successfully.\n```json\n{json.dumps(state_update.get('claim_record', {}), indent=2)}\n```"
-                            
+
                     elif node_name == "doc_verifier":
                         docs = state_update.get("doc_check", {})
                         step.output = (f"📄 **Documents Complete?** {docs.get('complete')}\n"
@@ -121,4 +126,7 @@ async def main(message: cl.Message):
     except Exception as e:
         await cl.Message(content=f"⚠ An execution fault occurred during the network run: {str(e)}").send()
     finally:
+        # Explicitly close the async generator so Python doesn't warn
+        # "async generator ignored GeneratorExit" if we exited via exception.
+        await stream.aclose()
         await status_msg.remove()

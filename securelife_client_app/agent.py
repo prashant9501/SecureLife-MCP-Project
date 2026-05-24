@@ -15,7 +15,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, END
 
 # Initialize the LLM
-llm = ChatOpenAI(model="gpt-4o-mini", streaming=True)
+llm = ChatOpenAI(model="gpt-5.4", streaming=True)
 
 # ==========================================
 # 1. SecureLife MCP Async Client Wrapper
@@ -87,12 +87,10 @@ async def triage_node(state: AgentState) -> dict:
     return {"claim_record": rec}
 
 async def doc_verifier_node(state: AgentState) -> dict:
-    if state.get("decision", {}).get("action") == "BLOCKED": return {}
     docs = await mcp_client._call_tool("verify_documents", {"claim_id": state["claim_id"]})
     return {"doc_check": docs}
 
 async def fraud_analyst_node(state: AgentState) -> dict:
-    if state.get("decision", {}).get("action") == "BLOCKED": return {}
     fraud = await mcp_client._call_tool("calculate_fraud_score", {"claim_id": state["claim_id"]})
     return {"fraud": fraud}
 
@@ -110,7 +108,6 @@ decide_prompt = ChatPromptTemplate.from_template(
 decide_chain = decide_prompt | llm
 
 async def decision_maker_node(state: AgentState) -> dict:
-    if state.get("decision", {}).get("action") == "BLOCKED": return {}
     response = await decide_chain.ainvoke({
         "record": json.dumps(state["claim_record"]),
         "docs":   json.dumps(state["doc_check"]),
@@ -130,9 +127,6 @@ async def decision_maker_node(state: AgentState) -> dict:
 
 async def compliance_auditor_node(state: AgentState) -> dict:
     decision = state["decision"]
-    if decision.get("action") == "BLOCKED":
-        return {"audit_result": {"skipped": True, "reason": "blocked at triage"}}
-    
     new_status = {"APPROVE": "APPROVED", "REVIEW": "UNDER_REVIEW", "REJECT": "REJECTED"}.get(decision["action"], "UNDER_REVIEW")
     
     res = await mcp_client._call_tool("update_claim_status", {
@@ -151,8 +145,15 @@ graph.add_node("fraud_analyst", fraud_analyst_node)
 graph.add_node("decision_maker", decision_maker_node)
 graph.add_node("compliance_auditor", compliance_auditor_node)
 
+def route_after_triage(state: AgentState) -> str:
+    # Short-circuit to END when triage's guardrail blocks the request,
+    # so downstream nodes don't fire on a half-populated state.
+    if state.get("decision", {}).get("action") == "BLOCKED":
+        return END
+    return "doc_verifier"
+
 graph.set_entry_point("triage")
-graph.add_edge("triage", "doc_verifier")
+graph.add_conditional_edges("triage", route_after_triage, {END: END, "doc_verifier": "doc_verifier"})
 graph.add_edge("doc_verifier", "fraud_analyst")
 graph.add_edge("fraud_analyst", "decision_maker")
 graph.add_edge("decision_maker", "compliance_auditor")
