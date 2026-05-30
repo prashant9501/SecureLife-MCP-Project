@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.client.session import ClientSession
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -26,7 +26,7 @@ class SecureLifeMCPAsync:
 
     async def _call_tool(self, tool_name: str, arguments: dict) -> dict:
         """Connects via Streamable HTTP to the MCP server and handles async communication."""
-        async with streamablehttp_client(self.server_url) as (read, write, _):
+        async with streamable_http_client(self.server_url) as (read, write, _):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 result = await session.call_tool(tool_name, arguments=arguments)
